@@ -99,7 +99,7 @@ def start_server():
         config_path, \
         last_liveroom_data
     global do_listen_and_comment_thread, stop_do_listen_and_comment_thread_event
-    global faster_whisper_model, sense_voice_model, is_recording, is_talk_awake, wait_play_audio_num
+    global faster_whisper_model, sense_voice_model, is_recording, is_talk_awake, wait_play_audio_num, wait_synthesis_msg_num
 
     # 按键监听相关
     do_listen_and_comment_thread = None
@@ -114,6 +114,7 @@ def start_server():
 
     # 待播放音频数量（在使用 音频播放器 或者 metahuman-stream等不通过AI Vtuber播放音频的对接项目时，使用此变量记录是是否还有音频没有播放完）
     wait_play_audio_num = 0
+    wait_synthesis_msg_num = 0
 
     # 获取 httpx 库的日志记录器
     # httpx_logger = logging.getLogger("httpx")
@@ -239,9 +240,24 @@ def start_server():
                     logger.error(f"调用LLM失败！{e}")
                     return CommonResult(code=-1, message=f"调用LLM失败！{e}")
 
+            from starlette.requests import Request
+
+            @app.post('/tts')
+            async def tts(request: Request):
+                try:
+                    data_json = await request.json()
+                    logger.info(f"API收到数据：{data_json}")
+
+                    resp_json = await My_handle.audio.tts_handle(data_json)
+
+                    return {"code": 200, "message": "成功", "data": resp_json}
+                except Exception as e:
+                    logger.error(traceback.format_exc())
+                    return CommonResult(code=-1, message=f"失败！{e}")
+                
             @app.post("/callback")
             async def callback(msg: CallbackMessage):
-                global my_handle, config, global_idle_time, wait_play_audio_num
+                global my_handle, config, global_idle_time, wait_play_audio_num, wait_synthesis_msg_num
 
                 try:
                     data_json = msg.dict()
@@ -277,8 +293,37 @@ def start_server():
                     logger.error(f"callback处理失败！{e}")
                     return CommonResult(code=-1, message=f"callback处理失败！{e}")
 
+            # 获取系统信息接口
+            @app.get("/get_sys_info")
+            async def get_sys_info():
+                global my_handle, config, global_idle_time, wait_play_audio_num, wait_synthesis_msg_num
+
+                try:
+                    data = {
+                        "audio": my_handle.get_audio_info(),
+                        "metahuman-stream": {
+                            "wait_play_audio_num": wait_play_audio_num,
+                            "wait_synthesis_msg_num": wait_synthesis_msg_num,
+                        }
+                    }
+
+                    return CommonResult(code=200, data=data, message="get_sys_info处理成功！")
+                except Exception as e:
+                    logger.error(f"get_sys_info处理失败！{e}")
+                    return CommonResult(code=-1, message=f"get_sys_info处理失败！{e}")
+
+            
+
             logger.info("HTTP API线程已启动！")
+
+            # 将本地目录中的静态文件（如 CSS、JavaScript、图片等）暴露给 web 服务器，以便用户可以通过特定的 URL 访问这些文件。
+            if config.get("webui", "local_dir_to_endpoint", "enable"):
+                for tmp in config.get("webui", "local_dir_to_endpoint", "config"):
+                    from fastapi.staticfiles import StaticFiles
+                    app.mount(tmp['url_path'], StaticFiles(directory=tmp['local_dir']), name=tmp['local_dir'])
+                    
             uvicorn.run(app, host="0.0.0.0", port=config.get("api_port"))
+            #uvicorn.run(app, host="0.0.0.0", port=config.get("api_port"), ssl_certfile="F:\\FunASR_WS\\cert.pem", ssl_keyfile="F:\\FunASR_WS\\key.pem")
 
         # HTTP API线程并启动
         inside_http_api_thread = threading.Thread(target=http_api_thread)
@@ -568,7 +613,7 @@ def start_server():
                             data["insert_index"] = -1
                             my_handle.reread_handle(data)
                     else:
-                        # 如果启用了“打断对话”功能
+                        # 如果启用了"打断对话"功能
                         if config.get("talk", "interrupt_talk", "enable"):
                             # 判断文本内容是否包含中断词
                             interrupt_word = common.find_substring_in_list(
@@ -2446,7 +2491,7 @@ def start_server():
         def on_error(ws, error):
             logger.error(f"Error:{error}")
 
-        def on_close(ws):
+        def on_close(ws, close_status_code, close_msg):
             logger.debug("WebSocket connection closed")
 
         def on_open(ws):
@@ -2482,12 +2527,18 @@ def start_server():
         # 等待子线程结束
         schedule_thread.join()
     elif platform == "dy2":
-        # 源自：douyinLiveWebFetcher
-        import gzip
-        import string
+        # from protobuf.douyin import *
+        
+        # 这里填一个已登录账号的cookie。不填cookie也可以连接，但是收到弹幕的用户名会打码，UID会变成0
+        SESSDATA = ""
 
-        import requests
-        import websocket
+        session: Optional[aiohttp.ClientSession] = None
+        
+        # 支持 wss 连接
+        if config.get("dy2", {}).get("use_wss", False):
+            ws_url = "wss://127.0.0.1:5001"
+        else:
+            ws_url = "ws://127.0.0.1:5001"
 
         def generateMsToken(length=107):
             """
@@ -4042,6 +4093,7 @@ if __name__ == "__main__":
 
     # 待播放音频数量（在使用 音频播放器 或者 metahuman-stream等不通过AI Vtuber播放音频的对接项目时，使用此变量记录是是否还有音频没有播放完）
     wait_play_audio_num = 0
+    wait_synthesis_msg_num = 0
 
     # 信号特殊处理
     signal.signal(signal.SIGINT, exit_handler)

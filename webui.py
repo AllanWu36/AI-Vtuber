@@ -929,6 +929,22 @@ def goto_func_page():
             logger.error(traceback.format_exc())
             return CommonResult(code=-1, message=f"失败！{e}")
 
+    # 获取系统信息接口
+    @app.get("/get_sys_info")
+    async def get_sys_info():
+        try:
+            # logger.info(f'WEBUI API get_sys_info接口 收到请求')
+
+            main_api_ip = "127.0.0.1" if config.get("api_ip") == "0.0.0.0" else config.get("api_ip")
+            resp_json = await common.send_async_request(f'http://{main_api_ip}:{config.get("api_port")}/get_sys_info', "GET", None, "json", timeout=60)
+            if resp_json:
+                return resp_json
+            return CommonResult(code=-1, message="失败！")
+        except Exception as e:
+            logger.error(f"get_sys_info处理失败！{e}")
+            return CommonResult(code=-1, message=f"get_sys_info处理失败！{e}")
+
+
     # fish speech 获取说话人数据
     async def fish_speech_web_get_ref_data(speaker):
         if speaker == "":
@@ -2484,6 +2500,8 @@ def goto_func_page():
                         "api_key": (input_dify_api_key, 'str'),
                         "type": (select_dify_type, 'str'),
                         "history_enable": (switch_dify_history_enable, 'bool'),
+                        "stream": (switch_dify_stream, 'bool'),
+                        "custom_params": (textarea_dify_custom_params, 'str'),  
                     }
                 if config.get("webui", "show_card", "llm", "gpt4free"):
                     config_mapping["gpt4free"] = {
@@ -5341,11 +5359,17 @@ def goto_func_page():
                         input_dify_api_key = ui.input(label='API密钥', value=config.get("dify", "api_key"), placeholder='API密钥，API页面获取').tooltip('API密钥，API页面获取')
                         select_dify_type = ui.select(
                             label='应用类型', 
-                            options={'聊天助手': '聊天助手'}, 
+                            options={'聊天助手': '聊天助手', '工作流': '工作流'}, 
                             value=config.get("dify", "type")
                         ).style("width:200px")
+                        switch_dify_stream = ui.switch('流式响应', value=config.get("dify", "stream")).style(switch_internal_css)
+                        
                         switch_dify_history_enable = ui.switch('上下文记忆', value=config.get("dify", "history_enable")).style(switch_internal_css)
-            
+                        textarea_dify_custom_params = ui.textarea(
+                            label=f"工作流自定义参数（JSON）", 
+                            value=config.get("dify", "custom_params"), 
+                            placeholder='inputs传递的参数，注意JSON格式',
+                        ).style("width:200px;").tooltip('发送HTTP请求的API链接')
             if config.get("webui", "show_card", "llm", "volcengine"):
                 with ui.card().style(card_css):
                     ui.label("火山引擎")
@@ -7692,3 +7716,5 @@ else:
 
 
 ui.run(host=webui_ip, port=webui_port, title=webui_title, favicon="./ui/favicon-64.ico", language="zh-CN", dark=False, reload=False)
+# ui.run(host=webui_ip, port=webui_port, title=webui_title, favicon="./ui/favicon-64.ico", language="zh-CN", dark=False, reload=False,
+#        ssl_certfile="F:\\FunASR_WS\\cert.pem", ssl_keyfile="F:\\FunASR_WS\\key.pem")

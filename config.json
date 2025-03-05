@@ -568,7 +568,9 @@
     "api_ip_port": "http://172.26.189.21",
     "type": "聊天助手",
     "api_key": "app-64xu0vQjP2kxN4DKR8Ch7ZGY",
-    "history_enable": true
+    "history_enable": true,
+    "stream": true,
+    "custom_params": "{\n\"prompt\": \"{{comment}}\"\n}"
   },
   "volcengine": {
     "model": "ep-20240904192312-r4rkc",
